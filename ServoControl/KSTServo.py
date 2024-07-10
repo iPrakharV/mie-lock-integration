@@ -2,7 +2,15 @@ from machine import Pin, PWM
 import time
 
 class KSTServo:
-    def __init__(self, pin, min_duty=23, max_duty=130, freq=50):
+    def __init__(self, pin, min_duty=272, max_duty=750, freq=333):
+        """
+        Initializes the KSTServo object to control a servo motor.
+        Parameters:
+        - pin (int): GPIO pin number where the servo signal wire is connected.
+        - min_duty (int): PWM duty cycle corresponding to -60 degrees.
+        - max_duty (int): PWM duty cycle corresponding to +60 degrees.
+        - freq (int): PWM frequency, generally 333 Hz for this servo.
+        """
         self.pin = pin
         self.min_duty = min_duty
         self.max_duty = max_duty
@@ -12,43 +20,60 @@ class KSTServo:
         print(f"Servo initialized on pin {self.pin} with frequency {self.freq} Hz")
 
     def angle_to_duty(self, angle):
-        duty = self.min_duty + (self.max_duty - self.min_duty) * (angle / 180)
+        """
+        Converts an angle in degrees to a PWM duty cycle.
+        """
+        if angle < -60:
+            angle = -60
+        elif angle > 60:
+            angle = 60
+        duty_span = self.max_duty - self.min_duty
+        duty = self.min_duty + (angle + 60) * (duty_span / 120)
         return int(duty)
 
-    def set_angle(self, angle):
-        if 0 <= angle <= 180:
-            duty = self.angle_to_duty(angle)
-            self.pwm.duty(duty)
-            self.current_angle = angle
-            print(f"Set angle to {angle} degrees (duty: {duty})")
-        else:
-            raise ValueError("Angle must be between 0 and 180 degrees")
+    def set_angle(self, angle, speed=1):
+        """
+        Sets the servo to a specific angle within the range of -60 to +60 degrees,
+        controlling the speed of movement.
+        """
+        target_duty = self.angle_to_duty(angle)
+        current_duty = self.pwm.duty()
 
-    def rotate_by(self, delta_angle):
-        new_angle = self.current_angle + delta_angle
-        if new_angle < 0:
-            new_angle = 0
-        elif new_angle > 180:
-            new_angle = 180
-        self.set_angle(new_angle)
+        # Calculate step size based on speed parameter
+        step = int((target_duty - current_duty) / (10 / speed))
+        if step == 0:
+            step = 1 if target_duty > current_duty else -1
 
-    def rotate_by_rotations(self, rotations):
-        degrees = rotations * 360
-        self.rotate_by(degrees)
+        while (step > 0 and current_duty < target_duty) or (step < 0 and current_duty > target_duty):
+            current_duty += step
+            self.pwm.duty(current_duty)
+            time.sleep(0.05 / speed)  # Modify delay based on speed to smooth out the movement
+            if (step > 0 and current_duty >= target_duty) or (step < 0 and current_duty <= target_duty):
+                break
 
-    def sweep(self, start_angle=0, end_angle=180, delay=0.01):
-        if start_angle < end_angle:
-            step = 1
-        else:
-            step = -1
+        self.pwm.duty(target_duty)  # Ensure it reaches the final duty
+        self.current_angle = angle
+        print(f"Set angle to {angle} degrees at speed {speed}")
+
+    def sweep(self, start_angle=-60, end_angle=60, delay=0.01, speed=1):
+        """
+        Sweeps the servo between two angles at a specified delay and speed.
+        """
+        step = 1 if start_angle < end_angle else -1
         for angle in range(start_angle, end_angle + step, step):
-            self.set_angle(angle)
+            self.set_angle(angle, speed)
             time.sleep(delay)
 
     def get_current_angle(self):
+        """
+        Returns the current angle of the servo.
+        """
         return self.current_angle
 
     def deinit(self):
+        """
+        Deinitializes the PWM signal to safely stop the servo.
+        """
         self.pwm.deinit()
         print("Servo deinitialized")
 
@@ -57,35 +82,23 @@ if __name__ == "__main__":
     servo = KSTServo(pin=12)
 
     try:
-        # Set the servo to 90 degrees
-        servo.set_angle(90)
-        time.sleep(1)
+        # Sweep from -60 to +60 degrees and back with speed control
+        # servo.sweep(start_angle=-60, end_angle=60, speed=1)
+        # time.sleep(1)
+        # servo.sweep(start_angle=60, end_angle=-60, speed=4)
+        # time.sleep(1)
 
-        # Rotate the servo by 45 degrees (total 135 degrees)
-        servo.rotate_by(45)
+        # Set specific angles to demonstrate range with speed adjustments
+        servo.set_angle(-60, speed=1)
         time.sleep(1)
+        servo.set_angle(0, speed=8)
+        time.sleep(1)
+        servo.set_angle(60, speed=1)
+        time.sleep(1)
+        servo.set_angle(0, speed=9)
 
-        # Rotate the servo by 0.5 rotations (total 315 degrees, will be limited to 180)
-        servo.rotate_by_rotations(0.5)
-        time.sleep(1)
-
-        # Sweep the servo from 0 to 180 degrees and back
-        servo.sweep(0, 180)
-        servo.sweep(180, 0)
-
-        """servo.set_angle(0)
-        time.sleep(1)
-        # Print the current angle
-        print("Current Angle:", servo.get_current_angle())
-        servo.set_angle(110)
-        time.sleep(1)
-        print("Current Angle:", servo.get_current_angle())
-        # servo.set_angle(220)
-        time.sleep(1)
-        print("Current Angle:", servo.get_current_angle())"""
-        
-        
         servo.deinit()
 
     except KeyboardInterrupt:
         servo.deinit()
+
